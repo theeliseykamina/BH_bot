@@ -1,21 +1,20 @@
-# Python cache
+# Python
 __pycache__/
-*.py[cod]
+*.pyc
+*.pyo
+*.pyd
 *.log
+*.sqlite3
+.venv/out/
+*.docx
 
-# Virtual environments
+# Virtual environment
 .venv/
 venv/
+
+# Secrets
+.env
 
 # IDE
 .idea/
 .vscode/
-
-# Outputs
-out/
-*.docx
-*.pdf
-*.xlsx
-
-# Secrets
-.env
