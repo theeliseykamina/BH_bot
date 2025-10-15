@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+out/
+*.docx
+
+# Virtual environment
+.venv/
+venv/
+
+# Secrets
+.env
+
+# IDE
+.idea/
+.vscode/
