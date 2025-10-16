@@ -85,7 +85,7 @@ CTX_SKIP_INLINE_SENT = "skip_inline_sent"  # чтобы не дублирова�
 
 # Пути к шаблону и временным файлам
 TEMPLATE_PATH = "template.docx"  # положи шаблон рядом с main.py
-OUTPUT_DIR = ".venv/out"  # папка для временных .docx (будем удалять после отправки)
+OUTPUT_DIR = "out"  # папка для временных .docx (будем удалять после отправки)
 CTX_SHOW_KEYBOARD_ONCE = "show_keyboard_once"
 
 CB_DOC_EGRN = "doc_egrn"
@@ -108,14 +108,14 @@ UNDERSCORE_WIDTHS = {
     # ===== Основные данные =====
     "contract_number": 5,
 
-    "naim_name": 98,
+    "naim_name": 92,
     "naim_address": 101,
     "naim_passport_series": 6,
     "naim_passport_number": 9,
     "naim_passport_issued_by": 93,
     "naim_passport_issued_date": 17,
 
-    "ar_name": 94,
+    "ar_name": 92,
     "ar_address": 100,
     "ar_passport_series": 6,
     "ar_passport_number": 9,
@@ -197,8 +197,8 @@ def get_token() -> str:
 
 
 def ensure_outdir() -> None:
-    if not os.path.isdir(OUTPUT_DIR):
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
 
 
 def uid_from(update: Update) -> int:
@@ -433,7 +433,7 @@ async def ask_next_field(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
 
-    # Автопропуски: если выбран ЕГРН — пропускаем поля свидетельства; если свидетельство — пропускаем кадастр
+    # Автопропуски: если выбран ЕГРН — пропускаем поля свидетельства; если свидетельство — пропускаем кадаст
     uid = uid_from(update)
     current = FIELDS[step]
     key = current["key"]
