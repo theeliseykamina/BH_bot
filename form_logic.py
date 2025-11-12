@@ -1,34 +1,30 @@
-# ===============================
-# form_logic.py — форматирование и валидации
-# ===============================
-
-# === Импорты и константы ===
 import re
 from datetime import datetime, date
-
+from typing import List
+import os, subprocess, shlex, platform
+from shutil import which
 from babel.dates import format_date as babel_format_date
 from num2words import num2words
 from docxtpl import DocxTemplate
 
 
 
-# Шаблон для акта приёма-передачи
+
 DEFAULT_ACT_CONDITION = (
     "Оборудование, мебель, техника и инженерные системы проверены, дефектов не выявлено."
 )
 
-# Регулярные выражения
-KADASTR_RE = re.compile(r"^\d{2}:\d{2}:\d{7}:\d{4}$")  # Кадастровый номер
-HAS_LETTER_RE = re.compile(r"[A-Za-zА-Яа-яЁё]")        # Проверка букв
-HAS_DIGIT_RE = re.compile(r"\d")                       # Проверка цифр
+
+KADASTR_RE = re.compile(r"^\d{2}:\d{2}:\d{7}:\d{4}$")
+HAS_LETTER_RE = re.compile(r"[A-Za-zА-Яа-яЁё]")
+HAS_DIGIT_RE = re.compile(r"\d")
 MONTHS_GEN = [
     "января", "февраля", "марта", "апреля", "мая", "июня",
     "июля", "августа", "сентября", "октября", "ноября", "декабря",
 ]
 
-# === Блок 1. Денежные суммы и числа ===
+
 def _to_int_amount(s: str) -> int | None:
-    """Преобразует строку в целое число (например '47 000' -> 47000)."""
     if s is None:
         return None
     s = str(s).strip().replace(" ", "")
@@ -38,21 +34,26 @@ def _to_int_amount(s: str) -> int | None:
 
 
 def format_money(raw: str) -> str | None:
-    """
-    Возвращает строку вида: 47 000 (сорок семь тысяч).
-    В скобках — сумма прописью без слова 'рублей'.
-    """
     amount = _to_int_amount(raw)
     if amount is None:
         return None
-    words = num2words(amount, lang="ru")
-    num_grouped = f"{amount:,}".replace(",", " ")
-    return f"{num_grouped} ({words})"
+    return f"{amount:,}".replace(",", " ")
 
 
-# === Блок 2. Даты ===
+def money_words_only(raw: str) -> str:
+    amount = _to_int_amount(raw)
+    if amount is None:
+        return ""
+    return num2words(amount, lang="ru")
+
+def split_money_parts(raw: str) -> tuple[str, str]:
+    num = format_money(raw)
+    words = money_words_only(raw) if num else ""
+    return num or "", words
+
+
+
 def parse_date(raw: str) -> date | None:
-    """Парсинг даты в формате ДД.ММ.ГГГГ или ДД.ММ.ГГ."""
     if not raw:
         return None
     raw = raw.strip()
@@ -67,8 +68,26 @@ def parse_date(raw: str) -> date | None:
     return None
 
 
+
+
+
+def _find_soffice_com() -> str | None:
+    # 1) если в PATH
+    p = which("soffice.com")
+    if p:
+        return p
+    candidates = [
+        r"C:\Program Files\LibreOffice\program\soffice.com",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.com",
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return None
+
+
+
 def format_date(raw: str) -> str | None:
-    """Форматирует дату для документа: «02» февраля 2002 г. (без зависимости от Babel)."""
     d = parse_date(raw)
     if d is None:
         return None
@@ -77,23 +96,19 @@ def format_date(raw: str) -> str | None:
     return f"{day_quoted} {month_gen} {d.year} г."
 
 
-
 def format_date_iso(raw: str) -> str | None:
-    """Форматирует дату в ISO-вид (2002-02-02)."""
     d = parse_date(raw)
     return d.isoformat() if d else None
 
 
-# === Блок 3. ФИО и тексты ===
+
 def _titlecase_preserve_hyphen(s: str) -> str:
-    """Приводит к виду с заглавной буквой, сохраняя дефисы."""
     parts = str(s).strip().split("-")
     tc = " - ".join(p.strip().capitalize() for p in parts)
     return tc.replace(" - ", "-")
 
 
 def format_fio(raw: str) -> str | None:
-    """Форматирует ФИО: каждое слово с заглавной буквы, дефисы сохраняются."""
     if not raw or not raw.strip():
         return None
     parts = [p for p in raw.strip().split() if p]
@@ -103,25 +118,19 @@ def format_fio(raw: str) -> str | None:
 
 
 def to_upper(raw: str) -> str | None:
-    """Переводит строку в ВЕРХНИЙ РЕГИСТР (например, 'кем выдан')."""
     if raw is None:
         return None
     return str(raw).strip().upper()
 
 
-# === Блок 4. Адреса ===
+
 def format_location(raw: str) -> str | None:
-    """Форматирует элемент адреса (город, улица, дом)."""
     if not raw or not raw.strip():
         return None
     return _titlecase_preserve_hyphen(raw)
 
 
 def validate_street_and_house(street: str, house: str) -> tuple[str, str] | None:
-    """
-    Проверяет правильность улицы и дома.
-    Улица должна содержать буквы, дом — цифры. Нормализует значения.
-    """
     if not street or not house:
         return None
     s = street.strip()
@@ -139,9 +148,8 @@ def validate_street_and_house(street: str, house: str) -> tuple[str, str] | None
     )
     return (s_norm, h_norm)
 
-# === Блок 5. Кадастр, да/нет, жильцы, плательщики, счётчики ===
+
 def format_kadastr(raw: str) -> str | None:
-    """Проверка и формат для кадастрового номера вида 00:00:0000000:0000."""
     if not raw:
         return None
     s = str(raw).strip()
@@ -149,10 +157,6 @@ def format_kadastr(raw: str) -> str | None:
 
 
 def format_yes_no(raw: str) -> str | None:
-    """
-    Нормализует да/нет для опций в договоре.
-    Возвращает 'Разрешено' или 'Запрещено'.
-    """
     if raw is None:
         return None
     s = str(raw).strip().lower()
@@ -164,10 +168,6 @@ def format_yes_no(raw: str) -> str | None:
 
 
 def format_payer_choice(raw: str) -> str | None:
-    """
-    Нормализует выбор плательщика.
-    Возвращает 'Наниматель' или 'Наймодатель'.
-    """
     if raw is None:
         return None
     s = str(raw).strip().lower()
@@ -179,7 +179,6 @@ def format_payer_choice(raw: str) -> str | None:
 
 
 def format_tenant_name_or_dash(raw: str) -> str | None:
-    """ФИО совместно проживающего или '-' для пропуска."""
     if raw is None:
         return None
     s = str(raw).strip()
@@ -189,10 +188,6 @@ def format_tenant_name_or_dash(raw: str) -> str | None:
 
 
 def preserve_numeric_string(raw: str) -> str | None:
-    """
-    Сохраняет числовую строку как есть, включая ведущие нули.
-    Подходит для показаний счётчиков и похожих полей.
-    """
     if raw is None:
         return None
     s = str(raw).strip()
@@ -203,7 +198,6 @@ def preserve_numeric_string(raw: str) -> str | None:
 
 
 def format_keys_count(raw: str) -> str | None:
-    """Количество ключей: целое число > 0. Возвращает строку исходного числа."""
     if raw is None:
         return None
     s = str(raw).strip()
@@ -211,17 +205,13 @@ def format_keys_count(raw: str) -> str | None:
         return s
     return None
 
-# === Блок 6. Сборка адреса и утилиты ===
+
 def compose_full_address(city: str | None,
                          street: str | None,
                          house: str | None,
                          building: str | None = None,
                          flat: str | None = None) -> str | None:
-    """
-    Склеивает полный адрес в формате:
-    'г. Город ул. Улица д. Дом к. Корпус кв. Квартира'
-    Пустые части пропускаются.
-    """
+
     if not city or not street or not house:
         return None
     parts = [
@@ -237,7 +227,6 @@ def compose_full_address(city: str | None,
 
 
 def ensure_not_empty(value: str | None) -> str:
-    """Заменяет None/пустое на '-' для безопасной подстановки в шаблон."""
     if value is None:
         return "-"
     s = str(value).strip()
@@ -245,40 +234,80 @@ def ensure_not_empty(value: str | None) -> str:
 
 
 def normalize_money_no_rubles(raw: str) -> str | None:
-    """
-    Обёртка для денег: возвращает '47 000 (сорок семь тысяч)'.
-    Полезна, если нужна явная нормализация перед шаблоном.
-    """
     return format_money(raw)
 
 
-# === Блок 7. Рендер DOCX-шаблона ===
 def fill_template(context: dict, template_path: str, output_path: str) -> str:
-    """
-    Подставляет context в DOCX-шаблон и сохраняет результат.
-    Все отсутствующие ключи добиваются '-' для устойчивости.
-    Возвращает путь к сохранённому файлу.
-    """
-    # Безопасная подстановка: добиваем '-' для отсутствующих переменных
-    # (docxtpl терпит лишние ключи, но упадёт при отсутствии ожидаемых)
     doc = DocxTemplate(template_path)
 
-    # Получаем список переменных из шаблона и заполняем пропуски '-'
-    # doc.get_undeclared_template_variables() есть не всегда, поэтому
-    # используем атрибуты jinja2:
     try:
         expected = set(doc.get_undeclared_template_variables())
     except Exception:
-        # Фолбэк: если метод недоступен, подставляем контекст как есть
         expected = set()
 
     ctx = dict(context) if context else {}
     if expected:
         for k in expected:
             if k not in ctx:
-                ctx[k] = "-"
-
-    # Рендер
+                ctx[k] = ""
     doc.render(ctx)
     doc.save(output_path)
     return output_path
+
+def wrap_conditions_to_rows(
+    items: List[str],
+    rows: int = 10,
+    budget_chars: int = 80,
+    with_numbers: bool = True,
+) -> List[str]:
+    out = []
+    row_idx = 0
+
+    def flush_line(buf: List[str], prefix: str = ""):
+        nonlocal out, row_idx
+        if row_idx >= rows:
+            return
+        line = " ".join(buf).strip()
+        out.append((prefix + line).strip())
+        row_idx += 1
+        buf.clear()
+
+    for i, raw in enumerate(items, start=1):
+        text = re.sub(r"\s+", " ", raw or "").strip()
+        prefix_first = (f"{i}. " if with_numbers else "")
+        current_budget = budget_chars - len(prefix_first)
+        buf = []
+
+        if not text:
+            flush_line([], prefix_first)
+            continue
+
+        for w in text.split(" "):
+            if not buf and len(w) > current_budget:
+                flush_line([w], prefix_first)
+                prefix_first = ""
+                current_budget = budget_chars
+                continue
+
+            proposed_len = (len(" ".join(buf)) + (1 if buf else 0) + len(w)) if buf else len(w)
+            if proposed_len <= current_budget:
+                buf.append(w)
+            else:
+                flush_line(buf, prefix_first)
+                prefix_first = ""
+                current_budget = budget_chars
+                if len(w) > current_budget:
+                    flush_line([w], "")
+                else:
+                    buf.append(w)
+
+        if buf and row_idx < rows:
+            flush_line(buf, prefix_first)
+
+        if row_idx >= rows:
+            break
+
+    while len(out) < rows:
+        out.append("")
+
+    return out[:rows]
